@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run GuardianStack Audits"
+  short_description: "Find and prove sign-in vulnerabilities"
+  default_prompt: "Use $running-guardianstack-audits to attack this authorized test account, prove signup and session vulnerabilities, and return one redacted Markdown report."
