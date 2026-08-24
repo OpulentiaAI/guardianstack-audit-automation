@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Launch a dedicated Chrome audit desktop for the target origin.
-# Usage: ORIGIN=https://platform.opulentia.ai ./start_audit_desktop.sh
+# Usage: AUDIT_ORIGIN=https://platform.opulentia.ai ./start_audit_desktop.sh
 
 set -euo pipefail
 
-ORIGIN="${ORIGIN:-https://platform.opulentia.ai}"
+ORIGIN="${AUDIT_ORIGIN:-https://platform.opulentia.ai}"
+ORIGIN_HOST="${ORIGIN#*://}"
+ORIGIN_HOST="${ORIGIN_HOST%%/*}"
+SIGNUP_PATH="${SIGNUP_PATH:-/auth?mode=signup}"
 PORT="${CDP_PORT:-9223}"
-PROFILE="${AUDIT_PROFILE:-/tmp/opulent-audit}}
+PROFILE="${AUDIT_PROFILE:-/tmp/${ORIGIN_HOST}-audit}"
 
 mkdir -p "$PROFILE"
 
@@ -33,4 +36,5 @@ exec "$CHROME" \
   --disable-features=PasswordManager \
   --disable-infobars \
   --disable-popup-blocking \
-  "$ORIGIN/auth?mode=signup"
+  --disable-component-extensions-with-background-pages \
+  "$ORIGIN$SIGNUP_PATH"

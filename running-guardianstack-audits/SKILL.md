@@ -29,22 +29,37 @@ Read before you start:
 - `references/report-template.md` — the report structure.
 - `helpers/README.md` — the helper scripts that make this reproducible.
 
-## Configure the audit
+## Configure the audit target
 
-Set the context once at the start of the session:
+The helpers are generic. Start from the example config and adjust it to the
+target site:
 
 ```bash
-export AUDIT_ORIGIN="https://platform.opulentia.ai"
-export AUDIT_NAME="GuardianStack Audit"
+cp running-guardianstack-audits/helpers/audit_config.json.example \
+   running-guardianstack-audits/helpers/audit_config.json
+```
+
+Edit the config to set the origin, auth paths, form selectors, API endpoints,
+auth header name, and token/storage key names.
+
+Set per-run variables once at the start of the session:
+
+```bash
 export AUDIT_EMAIL="<assessor-owned inbox>"
 export AUDIT_PASSWORD="<random strong password>"
+export AUDIT_NAME="GuardianStack Audit"
 export CDP_PORT=9223
 export OUTPUT_DIR="./audit_out"
 ```
 
-If no assessor-owned inbox is configured, run `python helpers/setup_mailbox.py`
-to create a temporary mail.tm address. If the site rejects that domain, ask the
-operator for an approved test identity — do not invent one.
+You can also override config values with environment variables:
+`AUDIT_ORIGIN`, `SIGNUP_PATH`, `SIGNIN_PATH`, `AUTH_HEADER`, and
+`STORAGE_PREFIX`.
+
+If no assessor-owned inbox is configured, run
+`python running-guardianstack-audits/helpers/setup_mailbox.py` to create a
+temporary mail.tm address. If the site rejects that domain, ask the operator for
+an approved test identity — do not invent one.
 
 ## Run the audit
 
@@ -56,14 +71,14 @@ Use the helper to launch a clean Chrome profile with remote debugging enabled:
 ./running-guardianstack-audits/helpers/start_audit_desktop.sh
 ```
 
-This opens the signup page and suppresses the password-manager save dialog.
-Keep this browser window for the entire audit.
+This opens the configured signup page and suppresses the password-manager save
+dialog. Keep this browser window for the entire audit.
 
 ### 2. Attach CDP before signup
 
-The signup helper attaches to the running Chrome, navigates to
-`$AUDIT_ORIGIN/auth?mode=signup`, enables `Network`, `Page`, `Runtime`, and
-`Log`, and records every event.
+The form helper attaches to the running Chrome, navigates to the configured
+signup URL, enables `Network`, `Page`, `Runtime`, and `Log`, and records every
+event.
 
 Run it in a terminal:
 
@@ -75,7 +90,7 @@ This script:
 
 - uses `Input.dispatchKeyEvent` to type into React controlled `name`, `email`,
   and `password` inputs (setting `value` directly does not update React state);
-- clicks the `Create account` / `Sign up` button;
+- clicks the `Create account` / `Sign up` button using the configured selector;
 - captures the final signup request and the first authenticated response;
 - saves network events, response bodies, storage state, and a screenshot to
   `$OUTPUT_DIR/simulate_signup.json` and `$OUTPUT_DIR/simulate_signup.png`.
@@ -85,13 +100,13 @@ handle it and then continue the capture.
 
 ### 3. Extract the session credential
 
-Pull the `better-auth-cookie` token out of the capture:
+Pull the configured authorization credential out of the capture:
 
 ```bash
 python running-guardianstack-audits/helpers/extract_cookie.py
 ```
 
-This writes `$OUTPUT_DIR/auth_cookie.txt`. Use this token only for the
+This writes `$OUTPUT_DIR/auth_cookie.txt`. Use this credential only for the
 authorized replay tests.
 
 ### 4. Inspect the browser state
@@ -103,16 +118,16 @@ From the capture, record:
 - every origin used during signup;
 - all cookies (document.cookie + `Network.getAllCookies`);
 - `localStorage`, `sessionStorage`, `IndexedDB`, and service workers;
-- where the durable `__Secure-better-auth.session_token` lives and every place
-  the same credential appears.
+- where the durable session token lives and every place the same credential
+  appears (look for readable storage and custom headers).
 
 Redact secret values before saving notes.
 
 ### 5. Run the attack list
 
 Use `references/audit-method.md` to build the attack list. Run
-`helpers/replay_attacks.py` to exercise the common replay, refresh, and
-logout cases:
+`helpers/replay_attacks.py` to exercise the common replay, refresh, and logout
+cases:
 
 ```bash
 python running-guardianstack-audits/helpers/replay_attacks.py
@@ -120,14 +135,13 @@ python running-guardianstack-audits/helpers/replay_attacks.py
 
 It writes `$OUTPUT_DIR/replay_tests.json` with results for:
 
-- full cookie, matching UA;
-- full cookie, different UA;
+- full credential, matching UA;
+- full credential, different UA;
 - session token only;
-- Convex JWT only;
-- `Cookie` header instead of `better-auth-cookie`;
-- Convex token minting from session token;
-- Convex token with different UA;
+- secondary token only (if configured);
+- `Cookie` header instead of the configured auth header;
 - no credential;
+- secondary token endpoint replay (if configured);
 - sign-out and post-logout replay.
 
 For each suspected weakness, write the hypothesis before the attempt, execute
@@ -147,10 +161,11 @@ python running-guardianstack-audits/helpers/logout_and_clear.py
 
 It writes `$OUTPUT_DIR/logout_test.json`. Check that:
 
-- `POST /api/auth/sign-out` returns success;
-- `GET /api/auth/get-session` returns `null` afterwards;
-- `GET /api/auth/convex/token` returns `401 Unauthorized` afterwards;
-- `better-auth_*` keys are removed from `localStorage` / `sessionStorage`.
+- the configured sign-out endpoint returns success;
+- the configured session endpoint rejects the old credential afterwards;
+- the configured secondary token endpoint rejects the old credential
+  afterwards (if configured);
+- auth-prefixed keys are removed from `localStorage` / `sessionStorage`.
 
 Delete the disposable test account if the configured policy allows it. If no
 account-deletion endpoint responds, record that the account still exists and the

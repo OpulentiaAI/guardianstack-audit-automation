@@ -1,0 +1,31 @@
+{
+  "origin": "https://platform.opulentia.ai",
+  "signup_path": "/auth?mode=signup",
+  "signin_path": "/auth?mode=signin",
+  "auth_header": "better-auth-cookie",
+  "storage_prefix": "better-auth",
+  "selectors": {
+    "signup": {
+      "name": "input#name",
+      "email": "input#email",
+      "password": "input#password",
+      "submit": "button[type=submit]"
+    },
+    "signin": {
+      "email": "input#email",
+      "password": "input#password",
+      "submit": "button[type=submit]"
+    }
+  },
+  "endpoints": {
+    "signup": "/api/auth/sign-up/email",
+    "signin": "/api/auth/sign-in/email",
+    "session": "/api/auth/get-session",
+    "secondary_token": "/api/auth/convex/token",
+    "signout": "/api/auth/sign-out"
+  },
+  "token_keys": {
+    "session": "__Secure-better-auth.session_token",
+    "secondary": "__Secure-better-auth.convex_jwt"
+  }
+}

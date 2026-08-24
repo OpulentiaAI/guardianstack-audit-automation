@@ -1,60 +1,89 @@
 #!/usr/bin/env python3
 """
-Extract the better-auth-cookie header value from a CDP capture.
+Extract the authorization credential from a CDP capture.
 
-This script searches the Network events in a CDP dump for the first
-/api/auth/ request that carried a `better-auth-cookie` header and writes the
-value to auth_cookie.txt in OUTPUT_DIR. If no header is found it falls back to
-the `better-auth_cookie` localStorage entry.
+The script searches Network events for the configured auth header on an auth
+endpoint and writes the value to auth_cookie.txt in OUTPUT_DIR. If no header is
+found, it falls back to localStorage under the configured storage prefix.
 
 Environment variables:
-  CDP_CAPTURE   Path to the CDP capture file (default: ./audit_out/simulate_signup.json)
-  OUTPUT_DIR    Where to write auth_cookie.txt (default: ./audit_out)
+  AUDIT_CONFIG   Path to a JSON target config file (optional)
+  CDP_CAPTURE    Path to the CDP capture file (default: ./audit_out/simulate_signup.json)
+  OUTPUT_DIR     Where to write auth_cookie.txt (default: ./audit_out)
 """
 import json
 import os
+import sys
 
-CDP_CAPTURE = os.environ.get("CDP_CAPTURE", "./audit_out/simulate_signup.json")
-OUT = os.environ.get("OUTPUT_DIR", "./audit_out")
+_HELPERS_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _HELPERS_DIR)
+from audit_config import load_config  # noqa: E402
 
 
 def main():
-    os.makedirs(OUT, exist_ok=True)
-    data = json.load(open(CDP_CAPTURE))
-    cookie = ""
+    config = load_config()
+    auth_header = config.get("auth_header", "better-auth-cookie")
+    storage_prefix = config.get("storage_prefix", "better-auth")
 
-    # First try network request headers.
+    cdp_capture = os.environ.get("CDP_CAPTURE", "./audit_out/simulate_signup.json")
+    out = os.environ.get("OUTPUT_DIR", "./audit_out")
+    os.makedirs(out, exist_ok=True)
+
+    data = json.load(open(cdp_capture))
+    credential = ""
+
+    # First try network request headers on auth endpoints.
     for msg in data.get("events", []):
         if msg.get("method") == "Network.requestWillBeSent":
             req = msg["params"]["request"]
-            if "/api/auth/" in req.get("url", ""):
-                c = req.get("headers", {}).get("better-auth-cookie", "")
+            url = req.get("url", "")
+            if "/api/auth/" in url or "/auth/" in url:
+                c = req.get("headers", {}).get(auth_header, "")
                 if c:
-                    cookie = c
+                    credential = c
                     break
 
     # Fallback to localStorage.
-    if not cookie:
+    if not credential:
         state = data.get("state", {})
-        value = state.get("result", {}).get("result", {}).get("value") if state else None
+        value = None
+        try:
+            value = state["result"]["result"]["value"]
+        except Exception:
+            pass
         if value and isinstance(value, str):
-            parsed = json.loads(value)
-            cookie_entry = next((v for k, v in parsed.get("localStorage", []) if k == "better-auth_cookie"), "")
-            if cookie_entry:
-                try:
-                    cookie_obj = json.loads(cookie_entry)
-                    parts = [f"{k}={v.get('value')}" for k, v in cookie_obj.items() if v.get("value")]
-                    cookie = "; ".join(parts)
-                except Exception:
-                    cookie = cookie_entry
+            try:
+                parsed = json.loads(value)
+                ls = parsed.get("localStorage", [])
+                for key, val in ls:
+                    if key.startswith(storage_prefix) or key in ("token", "session", "auth_token"):
+                        try:
+                            obj = json.loads(val)
+                            if isinstance(obj, dict):
+                                parts = []
+                                for k, v in obj.items():
+                                    if isinstance(v, dict) and v.get("value"):
+                                        parts.append(f"{k}={v['value']}")
+                                    elif isinstance(v, str):
+                                        parts.append(f"{k}={v}")
+                                if parts:
+                                    credential = "; ".join(parts)
+                            else:
+                                credential = str(obj)
+                        except Exception:
+                            credential = val
+                        if credential:
+                            break
+            except Exception:
+                pass
 
-    if not cookie:
-        print("No better-auth-cookie value found.")
+    if not credential:
+        print(f"No credential found (looked for header '{auth_header}' and storage prefix '{storage_prefix}').")
         return
 
-    out_path = os.path.join(OUT, "auth_cookie.txt")
+    out_path = os.path.join(out, "auth_cookie.txt")
     with open(out_path, "w") as f:
-        f.write(cookie)
+        f.write(credential)
     print(f"Wrote {out_path}")
 
 
